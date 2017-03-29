@@ -169,6 +169,7 @@ public abstract class JedisClusterCommand<T> {
     if (connection != null) {
       connection.close();
     }
+    connectionHandler.removeQueryContext();
   }
 
 }

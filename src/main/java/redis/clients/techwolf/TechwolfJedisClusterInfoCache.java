@@ -181,7 +181,7 @@ public class TechwolfJedisClusterInfoCache {
                     String host = slave.split(":")[0];
                     int port = NumberUtils.toInt(slave.split(":")[1]);
                     JedisPool slavePool = new JedisPool(poolConfig, host, port,
-                            connectionTimeout, soTimeout, password, 0, clientName, false, null, null, null);
+                            connectionTimeout, soTimeout, password, 0, clientName, false, null, null, null, false);
                     masterSlaveNode.getSlave().add(slavePool);
                 }
             }
@@ -284,6 +284,25 @@ public class TechwolfJedisClusterInfoCache {
         }
     }
 
+    public JedisPool getSlotReadPool(int slot) {
+        r.lock();
+        try {
+            MasterSlaveNode masterSlaveNode = slots.get(slot);
+            return masterSlaveNode.getSlaveByStrategy(MasterSlaveNode.SlaveStrategy.ROUND_ROBIN);
+        } finally {
+            r.unlock();
+        }
+    }
+
+    public JedisPool getSlotWritePool(int slot) {
+        r.lock();
+        try {
+            return slots.get(slot).getMaster();
+        } finally {
+            r.unlock();
+        }
+    }
+
     public JedisPool getSlotPool(int slot) {
         r.lock();
         try {
@@ -373,5 +392,6 @@ public class TechwolfJedisClusterInfoCache {
         cache.discoverClusterNodesAndSlots(jedis);
         System.out.println();
     }
+
 
 }

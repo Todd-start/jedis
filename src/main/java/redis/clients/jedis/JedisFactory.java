@@ -1,19 +1,17 @@
 package redis.clients.jedis;
 
-import java.net.URI;
-import java.util.concurrent.atomic.AtomicReference;
+import org.apache.commons.pool2.PooledObject;
+import org.apache.commons.pool2.PooledObjectFactory;
+import org.apache.commons.pool2.impl.DefaultPooledObject;
+import redis.clients.jedis.exceptions.InvalidURIException;
+import redis.clients.jedis.exceptions.JedisException;
+import redis.clients.util.JedisURIHelper;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
-
-import org.apache.commons.pool2.PooledObject;
-import org.apache.commons.pool2.PooledObjectFactory;
-import org.apache.commons.pool2.impl.DefaultPooledObject;
-
-import redis.clients.jedis.exceptions.InvalidURIException;
-import redis.clients.jedis.exceptions.JedisException;
-import redis.clients.util.JedisURIHelper;
+import java.net.URI;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * PoolableObjectFactory custom impl.
@@ -29,6 +27,7 @@ class JedisFactory implements PooledObjectFactory<Jedis> {
   private final SSLSocketFactory sslSocketFactory;
   private SSLParameters sslParameters;
   private HostnameVerifier hostnameVerifier;
+  private boolean isMaster = true;
 
   public JedisFactory(final String host, final int port, final int connectionTimeout,
       final int soTimeout, final String password, final int database, final String clientName,
@@ -44,6 +43,23 @@ class JedisFactory implements PooledObjectFactory<Jedis> {
     this.sslSocketFactory = sslSocketFactory;
     this.sslParameters = sslParameters;
     this.hostnameVerifier = hostnameVerifier;
+  }
+
+  public JedisFactory(final String host, final int port, final int connectionTimeout,
+                      final int soTimeout, final String password, final int database, final String clientName,
+                      final boolean ssl, final SSLSocketFactory sslSocketFactory, final SSLParameters sslParameters,
+                      final HostnameVerifier hostnameVerifier,boolean isMaster) {
+    this.hostAndPort.set(new HostAndPort(host, port));
+    this.connectionTimeout = connectionTimeout;
+    this.soTimeout = soTimeout;
+    this.password = password;
+    this.database = database;
+    this.clientName = clientName;
+    this.ssl = ssl;
+    this.sslSocketFactory = sslSocketFactory;
+    this.sslParameters = sslParameters;
+    this.hostnameVerifier = hostnameVerifier;
+    this.isMaster = isMaster;
   }
 
   public JedisFactory(final URI uri, final int connectionTimeout, final int soTimeout,
@@ -112,6 +128,10 @@ class JedisFactory implements PooledObjectFactory<Jedis> {
       }
       if (clientName != null) {
         jedis.clientSetname(clientName);
+      }
+      //从可读
+      if(!isMaster){
+        jedis.readonly();
       }
     } catch (JedisException je) {
       jedis.close();

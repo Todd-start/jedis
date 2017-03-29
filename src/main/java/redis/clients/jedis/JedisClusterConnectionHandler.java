@@ -2,6 +2,7 @@ package redis.clients.jedis;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.techwolf.QueryContext;
 import redis.clients.techwolf.TechwolfJedisClusterInfoCache;
 
 import java.io.Closeable;
@@ -9,6 +10,9 @@ import java.util.Map;
 import java.util.Set;
 
 public abstract class JedisClusterConnectionHandler implements Closeable {
+
+  protected static final ThreadLocal<QueryContext> queryContextThreadLocal = new ThreadLocal<QueryContext>();
+
   protected final TechwolfJedisClusterInfoCache cache;
 
   public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
@@ -68,4 +72,19 @@ public abstract class JedisClusterConnectionHandler implements Closeable {
   public void close() {
     cache.reset();
   }
+
+
+  public JedisClusterConnectionHandler read() {
+    queryContextThreadLocal.set(new QueryContext(QueryContext.OP_READ));
+    return this;
+  }
+  public JedisClusterConnectionHandler write() {
+    queryContextThreadLocal.set(new QueryContext(QueryContext.OP_WRITE));
+    return this;
+  }
+
+  public void removeQueryContext(){
+    queryContextThreadLocal.remove();
+  }
+
 }

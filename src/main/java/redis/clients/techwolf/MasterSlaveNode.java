@@ -14,6 +14,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class MasterSlaveNode {
 
+    public enum SlaveStrategy {
+        ROUND_ROBIN
+    }
+
+    public JedisPool getSlaveByStrategy(SlaveStrategy strategy) {
+        //TODO
+        JedisPool jedisPool = null;
+        if (slave != null && !slave.isEmpty()) {
+            jedisPool = slave.get(0);
+        }
+        if (jedisPool == null) {
+            jedisPool = master;
+        }
+        return jedisPool;
+    }
+
+
     private JedisPool master;
     private List<JedisPool> slave;
     private final ReentrantReadWriteLock nodeLock = new ReentrantReadWriteLock();

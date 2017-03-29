@@ -1,20 +1,19 @@
 package redis.clients.jedis;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.BinaryClient.LIST_POSITION;
+import redis.clients.jedis.params.geo.GeoRadiusParam;
 import redis.clients.jedis.params.sortedset.ZAddParams;
 import redis.clients.jedis.params.sortedset.ZIncrByParams;
+import redis.clients.util.JedisClusterHashTagUtil;
 import redis.clients.util.KeyMergeUtil;
-import redis.clients.jedis.params.geo.GeoRadiusParam;
+import redis.clients.util.SafeEncoder;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import redis.clients.util.JedisClusterHashTagUtil;
-import redis.clients.util.SafeEncoder;
 
 public class JedisCluster extends BinaryJedisCluster implements JedisCommands,
     MultiKeyJedisClusterCommands, JedisClusterScriptingCommands {
@@ -105,7 +104,7 @@ public class JedisCluster extends BinaryJedisCluster implements JedisCommands,
 
   @Override
   public String set(final String key, final String value) {
-    return new JedisClusterCommand<String>(connectionHandler, maxAttempts) {
+    return new JedisClusterCommand<String>(connectionHandler.write(), maxAttempts) {
       @Override
       public String execute(Jedis connection) {
         return connection.set(key, value);
@@ -126,7 +125,7 @@ public class JedisCluster extends BinaryJedisCluster implements JedisCommands,
 
   @Override
   public String get(final String key) {
-    return new JedisClusterCommand<String>(connectionHandler, maxAttempts) {
+    return new JedisClusterCommand<String>(connectionHandler.read(), maxAttempts) {
       @Override
       public String execute(Jedis connection) {
         return connection.get(key);

@@ -14,4 +14,8 @@ public class QueryContext {
     public QueryContext(int operationType) {
         this.operationType = operationType;
     }
+
+    public boolean isRead() {
+        return operationType == OP_READ;
+    }
 }

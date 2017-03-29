@@ -1,17 +1,15 @@
 package redis.clients.jedis;
 
-import java.net.URI;
+import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import redis.clients.jedis.exceptions.JedisException;
+import redis.clients.util.JedisURIHelper;
+import redis.clients.util.Pool;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
-
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-
-import redis.clients.jedis.exceptions.JedisException;
-import redis.clients.util.JedisURIHelper;
-import redis.clients.util.Pool;
+import java.net.URI;
 
 public class JedisPool extends Pool<Jedis> {
 
@@ -184,6 +182,14 @@ public class JedisPool extends Pool<Jedis> {
       final SSLParameters sslParameters, final HostnameVerifier hostnameVerifier) {
     super(poolConfig, new JedisFactory(host, port, connectionTimeout, soTimeout, password,
         database, clientName, ssl, sslSocketFactory, sslParameters, hostnameVerifier));
+  }
+  //Techwolf
+  public JedisPool(final GenericObjectPoolConfig poolConfig, final String host, int port,
+                   final int connectionTimeout, final int soTimeout, final String password, final int database,
+                   final String clientName, final boolean ssl, final SSLSocketFactory sslSocketFactory,
+                   final SSLParameters sslParameters, final HostnameVerifier hostnameVerifier,final boolean isMaster) {
+    super(poolConfig, new JedisFactory(host, port, connectionTimeout, soTimeout, password,
+            database, clientName, ssl, sslSocketFactory, sslParameters, hostnameVerifier,isMaster));
   }
 
   public JedisPool(final GenericObjectPoolConfig poolConfig, final URI uri) {
