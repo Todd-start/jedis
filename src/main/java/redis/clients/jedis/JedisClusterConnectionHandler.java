@@ -1,15 +1,15 @@
 package redis.clients.jedis;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.techwolf.TechwolfJedisClusterInfoCache;
+
 import java.io.Closeable;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-
-import redis.clients.jedis.exceptions.JedisConnectionException;
-
 public abstract class JedisClusterConnectionHandler implements Closeable {
-  protected final JedisClusterInfoCache cache;
+  protected final TechwolfJedisClusterInfoCache cache;
 
   public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
                                        final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password) {
@@ -18,7 +18,7 @@ public abstract class JedisClusterConnectionHandler implements Closeable {
 
   public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
           final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName) {
-    this.cache = new JedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName);
+    this.cache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName);
     initializeSlotsCache(nodes, poolConfig, password, clientName);
 }
 
