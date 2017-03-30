@@ -22,7 +22,7 @@ public abstract class JedisClusterConnectionHandler implements Closeable {
 
   public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
           final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName) {
-    this.cache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName);
+    this.cache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName,false);
     initializeSlotsCache(nodes, poolConfig, password, clientName);
 }
 

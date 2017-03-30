@@ -36,16 +36,20 @@ public class TechwolfJedisClusterInfoCache {
     private int soTimeout;
     private String password;
     private String clientName;
+    private boolean useSlave = false;
 
     private static final int MASTER_NODE_INDEX = 2;
 
     public TechwolfJedisClusterInfoCache(final GenericObjectPoolConfig poolConfig,
-                                         final int connectionTimeout, final int soTimeout, final String password, final String clientName) {
+                                         final int connectionTimeout, final int soTimeout,
+                                         final String password,
+                                         final String clientName, final boolean useSlave) {
         this.poolConfig = poolConfig;
         this.connectionTimeout = connectionTimeout;
         this.soTimeout = soTimeout;
         this.password = password;
         this.clientName = clientName;
+        this.useSlave = useSlave;
     }
 
     private void discoverClusterMasterAndSlave(Jedis jedis) {
@@ -89,7 +93,7 @@ public class TechwolfJedisClusterInfoCache {
                 } else if (!slaveSet.isEmpty()) {
                     masterSlaveNode.addAllSlaveHostAndPort(slaveSet);
                 }
-            } else {
+            } else if (useSlave) {
                 String masterHostAndPort = tempMap2.get(clusterNodeObject.getMasterId());
                 if (StringUtils.isBlank(masterHostAndPort)) {
                     Set<String> set = tempMap.get(clusterNodeObject.getMasterId());
@@ -292,8 +296,12 @@ public class TechwolfJedisClusterInfoCache {
     public JedisPool getSlotReadPool(int slot) {
         r.lock();
         try {
-            MasterSlaveNode masterSlaveNode = slots.get(slot);
-            return masterSlaveNode.getSlaveByStrategy(MasterSlaveNode.SlaveStrategy.ROUND_ROBIN);
+            if (useSlave) {
+                MasterSlaveNode masterSlaveNode = slots.get(slot);
+                return masterSlaveNode.getSlaveByStrategy(MasterSlaveNode.SlaveStrategy.ROUND_ROBIN);
+            } else {
+                return getSlotWritePool(slot);
+            }
         } finally {
             r.unlock();
         }
@@ -392,7 +400,7 @@ public class TechwolfJedisClusterInfoCache {
 
     public static void main(String[] args) {
         GenericObjectPoolConfig config = new GenericObjectPoolConfig();
-        TechwolfJedisClusterInfoCache cache = new TechwolfJedisClusterInfoCache(config, 2000, 2000, null, null);
+        TechwolfJedisClusterInfoCache cache = new TechwolfJedisClusterInfoCache(config, 2000, 2000, null, null, true);
         Jedis jedis = new Jedis("192.168.1.167", 7000);
         cache.discoverClusterNodesAndSlots(jedis);
         System.out.println();
