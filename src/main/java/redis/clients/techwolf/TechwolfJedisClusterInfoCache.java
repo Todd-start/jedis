@@ -65,21 +65,29 @@ public class TechwolfJedisClusterInfoCache {
                 tempMap2.put(clusterNodeObject.getNodeId(), clusterNodeObject.getHostAndPort());
                 MasterSlaveNode masterSlaveNode = nodes.get(clusterNodeObject.getHostAndPort());
                 if (masterSlaveNode == null) {
+                    //如果没有说明是新主　则new一个放到node里
                     masterSlaveNode = new MasterSlaveNode(clusterNodeObject);
                     nodes.put(masterSlaveNode.getMasterHostAndPort(), masterSlaveNode);
-                    if (clusterNodeObject.getSlot() != null) {
-                        int beginSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[0]);
-                        int endSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[1]);
-                        for (int i = beginSlot; i <= endSlot; i++) {
-                            masterSlaveNode.getSlotList().add(i);
-                        }
+                } else {
+                    //如果node里有，重新生成的时候要释放之前的slave
+                    masterSlaveNode.destroySlave();
+                }
+                //重新分配槽
+                if (clusterNodeObject.getSlot() != null) {
+                    //每个主只能进来一次所以重新分槽时先删除
+                    masterSlaveNode.clearSlot();
+                    int beginSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[0]);
+                    int endSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[1]);
+                    for (int i = beginSlot; i <= endSlot; i++) {
+                        masterSlaveNode.addSlot(i);
                     }
                 }
+                //如果之前循环有从节点先出现则此map有值
                 Set<String> slaveSet = tempMap.get(clusterNodeObject.getNodeId());
                 if (slaveSet == null) {
                     tempMap.put(clusterNodeObject.getNodeId(), new HashSet<String>());
                 } else if (!slaveSet.isEmpty()) {
-                    masterSlaveNode.getSlaveHostAndPort().addAll(slaveSet);
+                    masterSlaveNode.addAllSlaveHostAndPort(slaveSet);
                 }
             } else {
                 String masterHostAndPort = tempMap2.get(clusterNodeObject.getMasterId());
@@ -91,7 +99,7 @@ public class TechwolfJedisClusterInfoCache {
                     }
                     set.add(clusterNodeObject.getHostAndPort());
                 } else {
-                    nodes.get(masterHostAndPort).getSlaveHostAndPort().add(clusterNodeObject.getHostAndPort());
+                    nodes.get(masterHostAndPort).addSlaveHostAndPort(clusterNodeObject.getHostAndPort());
                 }
             }
         }
@@ -99,7 +107,6 @@ public class TechwolfJedisClusterInfoCache {
 
     public void discoverClusterNodesAndSlots(Jedis jedis) {
         w.lock();
-
         try {
             reset();
             discoverClusterMasterAndSlave(jedis);
@@ -111,10 +118,8 @@ public class TechwolfJedisClusterInfoCache {
 
     private void setupAllMasterAndSlaveNode() {
         for (Map.Entry<String, MasterSlaveNode> entry : nodes.entrySet()) {
-            String hostAndPortStr = entry.getKey();
-            String host = hostAndPortStr.split(":")[0];
-            int port = NumberUtils.toInt(hostAndPortStr.split(":")[1]);
-            HostAndPort hostAndPort = new HostAndPort(host, port);
+            MasterSlaveNode masterSlaveNode = entry.getValue();
+            HostAndPort hostAndPort = masterSlaveNode.getHostAndPort();
             setupNodeIfNotExist(hostAndPort);
             assignSlotsToNode(entry.getValue().getSlotList(), hostAndPort);
         }
@@ -123,12 +128,13 @@ public class TechwolfJedisClusterInfoCache {
     public void renewClusterSlots(Jedis jedis) {
         //If rediscovering is already in process - no need to start one more same rediscovering, just return
         if (!rediscovering) {
+            w.lock();
             try {
-                w.lock();
                 rediscovering = true;
 
                 if (jedis != null) {
                     try {
+                        slots.clear();
                         discoverClusterMasterAndSlave(jedis);
                         setupAllMasterAndSlaveNode();
                         return;
@@ -140,6 +146,7 @@ public class TechwolfJedisClusterInfoCache {
                 for (JedisPool jp : getShuffledNodesPool()) {
                     try {
                         jedis = jp.getResource();
+                        slots.clear();
                         discoverClusterMasterAndSlave(jedis);
                         setupAllMasterAndSlaveNode();
                         return;
@@ -169,12 +176,11 @@ public class TechwolfJedisClusterInfoCache {
             String nodeKey = getNodeKey(node);
             MasterSlaveNode masterSlaveNode = nodes.get(nodeKey);
             JedisPool existingPool = masterSlaveNode.getMaster();
-            if (existingPool != null) return existingPool;
-
-            JedisPool nodePool = new JedisPool(poolConfig, node.getHost(), node.getPort(),
-                    connectionTimeout, soTimeout, password, 0, clientName, false, null, null, null);
-            masterSlaveNode.setMaster(nodePool);
-
+            if (existingPool == null) {
+                existingPool = new JedisPool(poolConfig, node.getHost(), node.getPort(),
+                        connectionTimeout, soTimeout, password, 0, clientName, false, null, null, null);
+                masterSlaveNode.setMaster(existingPool);
+            }
             if (masterSlaveNode.getSlaveHostAndPort() != null && masterSlaveNode.getSlave() == null) {
                 masterSlaveNode.setSlave(new ArrayList<JedisPool>(masterSlaveNode.getSlaveHostAndPort().size()));
                 for (String slave : masterSlaveNode.getSlaveHostAndPort()) {
@@ -185,8 +191,7 @@ public class TechwolfJedisClusterInfoCache {
                     masterSlaveNode.getSlave().add(slavePool);
                 }
             }
-
-            return nodePool;
+            return existingPool;
         } finally {
             w.unlock();
         }

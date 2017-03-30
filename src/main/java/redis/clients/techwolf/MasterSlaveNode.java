@@ -1,11 +1,11 @@
 package redis.clients.techwolf;
 
+import org.apache.commons.lang3.math.NumberUtils;
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.JedisPool;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -14,23 +14,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class MasterSlaveNode {
 
+
     public enum SlaveStrategy {
         ROUND_ROBIN
     }
 
-    public JedisPool getSlaveByStrategy(SlaveStrategy strategy) {
-        //TODO
-        JedisPool jedisPool = null;
-        if (slave != null && !slave.isEmpty()) {
-            jedisPool = slave.get(0);
-        }
-        if (jedisPool == null) {
-            jedisPool = master;
-        }
-        return jedisPool;
-    }
-
-
+    private final AtomicInteger counter = new AtomicInteger();
     private JedisPool master;
     private List<JedisPool> slave;
     private final ReentrantReadWriteLock nodeLock = new ReentrantReadWriteLock();
@@ -41,12 +30,18 @@ public class MasterSlaveNode {
     private String masterNodeId;
     private Set<String> slaveNodeId;
     private List<Integer> slotList;
+    private String configEpoch;
 
     public MasterSlaveNode(ClusterNodeObject clusterNodeObject) {
         this.masterHostAndPort = clusterNodeObject.getHostAndPort();
         this.masterNodeId = clusterNodeObject.getNodeId();
         slaveHostAndPort = new HashSet<String>();
         slotList = new ArrayList<Integer>();
+        this.configEpoch = clusterNodeObject.getConfigEpoch();
+    }
+
+    public Set<String> getSlaveHostAndPort() {
+        return slaveHostAndPort;
     }
 
     public JedisPool getMaster() {
@@ -81,26 +76,6 @@ public class MasterSlaveNode {
         return masterHostAndPort;
     }
 
-    public void setMasterHostAndPort(String masterHostAndPort) {
-        this.masterHostAndPort = masterHostAndPort;
-    }
-
-    public Set<String> getSlaveHostAndPort() {
-        return slaveHostAndPort;
-    }
-
-    public void setSlaveHostAndPort(Set<String> slaveHostAndPort) {
-        this.slaveHostAndPort = slaveHostAndPort;
-    }
-
-    public String getMasterNodeId() {
-        return masterNodeId;
-    }
-
-    public void setMasterNodeId(String masterNodeId) {
-        this.masterNodeId = masterNodeId;
-    }
-
     public Set<String> getSlaveNodeId() {
         return slaveNodeId;
     }
@@ -124,21 +99,74 @@ public class MasterSlaveNode {
     }
 
     public void destroy() {
-        if (master != null) {
-            master.destroy();
-        }
+        destroyMaster();
+        destroySlave();
+    }
+
+    public void destroySlave() {
         if (slave != null) {
             for (JedisPool jedisPool : slave) {
                 jedisPool.destroy();
             }
         }
+        slave = null;
+    }
+
+    public void destroyMaster() {
+        if (master != null) {
+            master.destroy();
+        }
+    }
+
+    public void addSlot(int slot) {
+        slotList.add(slot);
+    }
+
+    public void addAllSlaveHostAndPort(Collection<? extends String> data) {
+        slaveHostAndPort.addAll(data);
+    }
+
+    public void addSlaveHostAndPort(String data) {
+        slaveHostAndPort.add(data);
     }
 
     public List<Integer> getSlotList() {
-        return slotList;
+        return new ArrayList<Integer>(slotList);
     }
 
-    public void setSlotList(List<Integer> slotList) {
-        this.slotList = slotList;
+    public JedisPool getSlaveByStrategy(SlaveStrategy strategy) {
+        JedisPool jedisPool = null;
+        switch (strategy) {
+            case ROUND_ROBIN:
+                jedisPool = roundRobinSlavePool();
+                break;
+            default:
+                jedisPool = master;
+        }
+        if (jedisPool == null) {
+            jedisPool = master;
+        }
+        return jedisPool;
+    }
+
+    public void clearSlot() {
+        if (slotList != null) {
+            slotList.clear();
+        }
+    }
+
+    public HostAndPort getHostAndPort() {
+        String host = masterHostAndPort.split(":")[0];
+        int port = NumberUtils.toInt(masterHostAndPort.split(":")[1]);
+        HostAndPort hostAndPort = new HostAndPort(host, port);
+        return hostAndPort;
+    }
+
+    private JedisPool roundRobinSlavePool() {
+        JedisPool jedisPool = null;
+        if (slave != null && !slave.isEmpty()) {
+            jedisPool = slave.get(counter.getAndIncrement() % slave.size());
+        }
+        return jedisPool;
     }
 }
