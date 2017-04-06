@@ -15,6 +15,7 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -37,6 +38,7 @@ public class TechwolfJedisClusterInfoCache {
     private String password;
     private String clientName;
     private boolean useSlave = false;
+    private final TechwolfNodeSaint techwolfNodeSaint = new TechwolfNodeSaint();
 
     private static final int MASTER_NODE_INDEX = 2;
 
@@ -73,8 +75,11 @@ public class TechwolfJedisClusterInfoCache {
                     masterSlaveNode = new MasterSlaveNode(clusterNodeObject);
                     nodes.put(masterSlaveNode.getMasterHostAndPort(), masterSlaveNode);
                 } else {
+                    //如果以存在的node配置版本没有变化则不进行销毁
                     //如果node里有，重新生成的时候要释放之前的slave
-                    masterSlaveNode.destroySlave();
+                    if (!clusterNodeObject.getConfigEpoch().equals(masterSlaveNode.getConfigEpoch())) {
+                        masterSlaveNode.destroySlave();
+                    }
                 }
                 //重新分配槽
                 if (clusterNodeObject.getSlot() != null) {
@@ -136,7 +141,7 @@ public class TechwolfJedisClusterInfoCache {
             try {
                 rediscovering = true;
 
-                if (jedis != null) {
+                if (jedis != null && "pong".equals(jedis.ping())) {//防止jedis不为空时但连接失效
                     try {
                         slots.clear();
                         discoverClusterMasterAndSlave(jedis);
@@ -150,6 +155,13 @@ public class TechwolfJedisClusterInfoCache {
                 for (JedisPool jp : getShuffledNodesPool()) {
                     try {
                         jedis = jp.getResource();
+                        if (jedis == null) {
+                            continue;
+                        }
+                        String result = jedis.ping();
+                        if (!result.equalsIgnoreCase("pong")) {
+                            continue;
+                        }
                         slots.clear();
                         discoverClusterMasterAndSlave(jedis);
                         setupAllMasterAndSlaveNode();
@@ -271,7 +283,7 @@ public class TechwolfJedisClusterInfoCache {
         }
     }
 
-    public void assignSlotsToNode(List<Integer> targetSlots, HostAndPort targetNode) {
+    private void assignSlotsToNode(List<Integer> targetSlots, HostAndPort targetNode) {
         w.lock();
         try {
             setupNodeIfNotExist(targetNode);
@@ -399,11 +411,174 @@ public class TechwolfJedisClusterInfoCache {
     }
 
     public static void main(String[] args) {
-        GenericObjectPoolConfig config = new GenericObjectPoolConfig();
-        TechwolfJedisClusterInfoCache cache = new TechwolfJedisClusterInfoCache(config, 2000, 2000, null, null, true);
-        Jedis jedis = new Jedis("192.168.1.167", 7000);
-        cache.discoverClusterNodesAndSlots(jedis);
-        System.out.println();
+//        GenericObjectPoolConfig config = new GenericObjectPoolConfig();
+//        TechwolfJedisClusterInfoCache cache = new TechwolfJedisClusterInfoCache(config, 2000, 2000, null, null, true);
+//        Jedis jedis = new Jedis("192.168.1.167", 7000);
+//        cache.discoverClusterNodesAndSlots(jedis);
+//        System.out.println();
+    }
+
+    static class MasterSlaveNode {
+
+        public enum SlaveStrategy {
+            ROUND_ROBIN
+        }
+
+        private final AtomicInteger counter = new AtomicInteger();
+        private JedisPool master;
+        private List<JedisPool> slave;
+        private final ReentrantReadWriteLock nodeLock = new ReentrantReadWriteLock();
+        private final Lock readLock = nodeLock.readLock();
+        private final Lock writeLock = nodeLock.writeLock();
+        private String masterHostAndPort;
+        private Set<String> slaveHostAndPort;
+        private String masterNodeId;
+        private Set<String> slaveNodeId;
+        private List<Integer> slotList;
+        private String configEpoch;
+
+        public MasterSlaveNode(ClusterNodeObject clusterNodeObject) {
+            this.masterHostAndPort = clusterNodeObject.getHostAndPort();
+            this.masterNodeId = clusterNodeObject.getNodeId();
+            slaveHostAndPort = new HashSet<String>();
+            slotList = new ArrayList<Integer>();
+            this.configEpoch = clusterNodeObject.getConfigEpoch();
+        }
+
+        public Set<String> getSlaveHostAndPort() {
+            return slaveHostAndPort;
+        }
+
+        public JedisPool getMaster() {
+            return master;
+        }
+
+        public void setMaster(JedisPool master) {
+            this.master = master;
+        }
+
+        public List<JedisPool> getSlave() {
+            return slave;
+        }
+
+        public void setSlave(List<JedisPool> slave) {
+            this.slave = slave;
+        }
+
+        public String getConfigEpoch() {
+            return configEpoch;
+        }
+
+        public ReentrantReadWriteLock getNodeLock() {
+            return nodeLock;
+        }
+
+        public Lock getReadLock() {
+            return readLock;
+        }
+
+        public Lock getWriteLock() {
+            return writeLock;
+        }
+
+        public String getMasterHostAndPort() {
+            return masterHostAndPort;
+        }
+
+        public Set<String> getSlaveNodeId() {
+            return slaveNodeId;
+        }
+
+        public void setSlaveNodeId(Set<String> slaveNodeId) {
+            this.slaveNodeId = slaveNodeId;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj instanceof MasterSlaveNode) {
+                MasterSlaveNode hp = (MasterSlaveNode) obj;
+                return hp.getMasterHostAndPort().equals(this.getMasterHostAndPort());
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return this.getMasterHostAndPort().hashCode();
+        }
+
+        public void destroy() {
+            destroyMaster();
+            destroySlave();
+        }
+
+        public void destroySlave() {
+            if (slave != null) {
+                for (JedisPool jedisPool : slave) {
+                    jedisPool.destroy();
+                }
+            }
+            slave = null;
+            slaveHostAndPort = new HashSet<String>();
+        }
+
+        public void destroyMaster() {
+            if (master != null) {
+                master.destroy();
+            }
+        }
+
+        public void addSlot(int slot) {
+            slotList.add(slot);
+        }
+
+        public void addAllSlaveHostAndPort(Collection<? extends String> data) {
+            slaveHostAndPort.addAll(data);
+        }
+
+        public void addSlaveHostAndPort(String data) {
+            slaveHostAndPort.add(data);
+        }
+
+        public List<Integer> getSlotList() {
+            return new ArrayList<Integer>(slotList);
+        }
+
+        public JedisPool getSlaveByStrategy(MasterSlaveNode.SlaveStrategy strategy) {
+            JedisPool jedisPool = null;
+            switch (strategy) {
+                case ROUND_ROBIN:
+                    jedisPool = roundRobinSlavePool();
+                    break;
+                default:
+                    jedisPool = master;
+            }
+            if (jedisPool == null) {
+                jedisPool = master;
+            }
+            return jedisPool;
+        }
+
+        public void clearSlot() {
+            if (slotList != null) {
+                slotList.clear();
+            }
+        }
+
+        public HostAndPort getHostAndPort() {
+            String host = masterHostAndPort.split(":")[0];
+            int port = NumberUtils.toInt(masterHostAndPort.split(":")[1]);
+            HostAndPort hostAndPort = new HostAndPort(host, port);
+            return hostAndPort;
+        }
+
+        private JedisPool roundRobinSlavePool() {
+            JedisPool jedisPool = null;
+            if (slave != null && !slave.isEmpty()) {
+                jedisPool = slave.get(counter.getAndIncrement() % slave.size());
+            }
+            return jedisPool;
+        }
     }
 
 
