@@ -613,13 +613,13 @@ public class TechwolfJedisClusterInfoCache {
 
         private void addNode(String message) {
             for(;;){
-
+                break;
             }
         }
 
         private void removeNode(String message) {
             for(;;){
-
+                break;
             }
         }
 
