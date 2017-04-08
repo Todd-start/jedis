@@ -1,22 +1,16 @@
 package redis.clients.jedis;
 
-import redis.clients.jedis.exceptions.JedisAskDataException;
-import redis.clients.jedis.exceptions.JedisClusterException;
-import redis.clients.jedis.exceptions.JedisClusterMaxRedirectionsException;
-import redis.clients.jedis.exceptions.JedisConnectionException;
-import redis.clients.jedis.exceptions.JedisMovedDataException;
-import redis.clients.jedis.exceptions.JedisNoReachableClusterNodeException;
-import redis.clients.jedis.exceptions.JedisRedirectionException;
+import redis.clients.jedis.exceptions.*;
 import redis.clients.util.JedisClusterCRC16;
 import redis.clients.util.SafeEncoder;
 
-public abstract class JedisClusterCommand<T> {
+public abstract class TechwolfJedisClusterCommand<T> {
 
-  private JedisClusterConnectionHandler connectionHandler;
+  private TechwolfJedisClusterConnectionHandler connectionHandler;
   private int maxAttempts;
   private ThreadLocal<Jedis> askConnection = new ThreadLocal<Jedis>();
 
-  public JedisClusterCommand(JedisClusterConnectionHandler connectionHandler, int maxAttempts) {
+  public TechwolfJedisClusterCommand(TechwolfJedisClusterConnectionHandler connectionHandler, int maxAttempts) {
     this.connectionHandler = connectionHandler;
     this.maxAttempts = maxAttempts;
   }
@@ -44,7 +38,7 @@ public abstract class JedisClusterCommand<T> {
         int nextSlot = JedisClusterCRC16.getSlot(keys[i]);
         if (slot != nextSlot) {
           throw new JedisClusterException("No way to dispatch this command to Redis Cluster "
-                  + "because keys have different slots.");
+              + "because keys have different slots.");
         }
       }
     }
@@ -73,7 +67,7 @@ public abstract class JedisClusterCommand<T> {
         int nextSlot = JedisClusterCRC16.getSlot(keys[i]);
         if (slot != nextSlot) {
           throw new JedisClusterException("No way to dispatch this command to Redis Cluster "
-                  + "because keys have different slots.");
+              + "because keys have different slots.");
         }
       }
     }
@@ -169,6 +163,7 @@ public abstract class JedisClusterCommand<T> {
     if (connection != null) {
       connection.close();
     }
+    connectionHandler.removeQueryContext();
   }
 
 }

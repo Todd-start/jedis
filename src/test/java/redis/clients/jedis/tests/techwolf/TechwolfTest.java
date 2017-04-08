@@ -1,4 +1,4 @@
-package redis.clients.jedis.tests;
+package redis.clients.jedis.tests.techwolf;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.After;

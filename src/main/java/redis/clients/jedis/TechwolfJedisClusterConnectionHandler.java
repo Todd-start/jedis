@@ -2,24 +2,24 @@ package redis.clients.jedis;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.techwolf.QueryContext;
+import redis.clients.techwolf.TechwolfJedisClusterInfoCache;
 
 import java.io.Closeable;
 import java.util.Map;
 import java.util.Set;
 
-public abstract class JedisClusterConnectionHandler implements Closeable {
-  protected final JedisClusterInfoCache cache;
+public abstract class TechwolfJedisClusterConnectionHandler implements Closeable {
 
-  public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
-                                       final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password) {
-    this(nodes, poolConfig, connectionTimeout, soTimeout, password, null);
-  }
+  protected static final ThreadLocal<QueryContext> queryContextThreadLocal = new ThreadLocal<QueryContext>();
 
-  public JedisClusterConnectionHandler(Set<HostAndPort> nodes,
-                                       final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName) {
-    this.cache = new JedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName);
+  protected final TechwolfJedisClusterInfoCache cache;
+
+  public TechwolfJedisClusterConnectionHandler(Set<HostAndPort> nodes,
+                                               final GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName) {
+    this.cache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName,false);
     initializeSlotsCache(nodes, poolConfig, password, clientName);
-  }
+}
 
   abstract Jedis getConnection();
 
@@ -28,7 +28,7 @@ public abstract class JedisClusterConnectionHandler implements Closeable {
   public Jedis getConnectionFromNode(HostAndPort node) {
     return cache.setupNodeIfNotExist(node).getResource();
   }
-
+  
   public Map<String, JedisPool> getNodes() {
     return cache.getNodes();
   }
@@ -67,4 +67,19 @@ public abstract class JedisClusterConnectionHandler implements Closeable {
   public void close() {
     cache.reset();
   }
+
+
+  public TechwolfJedisClusterConnectionHandler read() {
+    queryContextThreadLocal.set(new QueryContext(QueryContext.OP_READ));
+    return this;
+  }
+  public TechwolfJedisClusterConnectionHandler write() {
+    queryContextThreadLocal.set(new QueryContext(QueryContext.OP_WRITE));
+    return this;
+  }
+
+  public void removeQueryContext(){
+    queryContextThreadLocal.remove();
+  }
+
 }
