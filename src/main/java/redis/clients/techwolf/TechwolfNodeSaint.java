@@ -25,41 +25,34 @@ public class TechwolfNodeSaint {
 
     private JedisPoolConfig poolConfig;
 
+    private JedisPubSub jedisPubSubListener;
+
     /**
      * ip:port;ip:port
      */
-    public TechwolfNodeSaint() {
+    public TechwolfNodeSaint(JedisPubSub jedisPubSub) {
         poolConfig = new JedisPoolConfig();
         poolConfig.setMaxTotal(DEFAULT_MAX_TOTAL);
         poolConfig.setMaxWaitMillis(DEFAULT_MAX_WAIT);
         poolConfig.setMaxIdle(DEFAULT_IDLE);
         poolConfig.setMinIdle(DEFAULT_IDLE);
+        jedisPubSubListener = jedisPubSub;
     }
 
     public void init() {
+        sentinels.add("192.168.1.31:26379");
         sentinelSet = new HashSet<TechwolfSentinel>(sentinels.size());
         for (String sentinel : sentinels) {
             sentinelSet.add(new TechwolfSentinel(sentinel, poolConfig));
         }
+        addChannelEvents(SentinelEvents.SWITCH_MASTER,
+                SentinelEvents.SLAVE_PLUS, SentinelEvents.SDOWN_PLUS, SentinelEvents.ODOWN_PLUS,
+                SentinelEvents.ODOWN_MINUS,SentinelEvents.SDOWN_MINUS);
     }
 
-    public static void main(String[] args) {
-        TechwolfNodeSaint saint = new TechwolfNodeSaint();
-        saint.sentinels.add("192.168.1.31:26379");
-        saint.init();
-        saint.addChannelListener(SentinelEvents.SWITCH_MASTER,
-                SentinelEvents.SLAVE_PLUS,SentinelEvents.SDOWN_PLUS,SentinelEvents.ODOWN_PLUS);
-
-    }
-
-    private void addChannelListener(String... arr) {
+    private void addChannelEvents(String... arr) {
         for (TechwolfSentinel techwolfSentinel : sentinelSet) {
-            techwolfSentinel.addChannelListener(new JedisPubSub() {
-                @Override
-                public void onMessage(String channel, String message) {
-                    System.out.println(channel+":" + message);
-                }
-            }, arr);
+            techwolfSentinel.addChannelListener(jedisPubSubListener, arr);
         }
     }
 }

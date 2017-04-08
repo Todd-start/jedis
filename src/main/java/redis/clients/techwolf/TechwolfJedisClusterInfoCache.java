@@ -3,10 +3,7 @@ package redis.clients.techwolf;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import redis.clients.jedis.Client;
-import redis.clients.jedis.HostAndPort;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.*;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisException;
 import redis.clients.util.SafeEncoder;
@@ -18,12 +15,14 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Logger;
 
 /**
  * Created by zhaoyalong on 17-3-28.
  */
 public class TechwolfJedisClusterInfoCache {
 
+    private Logger log = Logger.getLogger(getClass().getName());
     private final Map<String, MasterSlaveNode> nodes = new HashMap<String, MasterSlaveNode>();
     private final Map<Integer, MasterSlaveNode> slots = new HashMap<Integer, MasterSlaveNode>();
 
@@ -38,7 +37,7 @@ public class TechwolfJedisClusterInfoCache {
     private String password;
     private String clientName;
     private boolean useSlave = false;
-    private final TechwolfNodeSaint techwolfNodeSaint = new TechwolfNodeSaint();
+    private final TechwolfNodeSaint techwolfNodeSaint = new TechwolfNodeSaint(new CachePubSub());
 
     private static final int MASTER_NODE_INDEX = 2;
 
@@ -52,6 +51,7 @@ public class TechwolfJedisClusterInfoCache {
         this.password = password;
         this.clientName = clientName;
         this.useSlave = useSlave;
+        techwolfNodeSaint.init();
     }
 
     private void discoverClusterMasterAndSlave(Jedis jedis) {
@@ -66,7 +66,9 @@ public class TechwolfJedisClusterInfoCache {
                             splits[2].contains("master"), splits[3],
                             NumberUtils.toLong(splits[4], 0), NumberUtils.toLong(splits[5], 0), splits[6],
                             splits[7].equalsIgnoreCase("connected"), splits.length == 9 ? splits[8] : null);
-
+            if (!clusterNodeObject.isLinkState()) {
+                continue;
+            }
             if (clusterNodeObject.isMaster()) {
                 tempMap2.put(clusterNodeObject.getNodeId(), clusterNodeObject.getHostAndPort());
                 MasterSlaveNode masterSlaveNode = nodes.get(clusterNodeObject.getHostAndPort());
@@ -410,15 +412,10 @@ public class TechwolfJedisClusterInfoCache {
         return slotNums;
     }
 
-    public static void main(String[] args) {
-//        GenericObjectPoolConfig config = new GenericObjectPoolConfig();
-//        TechwolfJedisClusterInfoCache cache = new TechwolfJedisClusterInfoCache(config, 2000, 2000, null, null, true);
-//        Jedis jedis = new Jedis("192.168.1.167", 7000);
-//        cache.discoverClusterNodesAndSlots(jedis);
-//        System.out.println();
-    }
-
-    static class MasterSlaveNode {
+    /**
+     * master slave jedispool container
+     */
+    private final static class MasterSlaveNode {
 
         public enum SlaveStrategy {
             ROUND_ROBIN
@@ -536,8 +533,13 @@ public class TechwolfJedisClusterInfoCache {
             slaveHostAndPort.addAll(data);
         }
 
-        public void addSlaveHostAndPort(String data) {
-            slaveHostAndPort.add(data);
+        public boolean addSlaveHostAndPort(String data) {
+            writeLock.lock();
+            try {
+                return slaveHostAndPort.add(data);
+            } finally {
+                writeLock.unlock();
+            }
         }
 
         public List<Integer> getSlotList() {
@@ -579,6 +581,80 @@ public class TechwolfJedisClusterInfoCache {
             }
             return jedisPool;
         }
+    }
+
+
+    //sentinel listener
+    private class CachePubSub extends JedisPubSub {
+
+        @Override
+        public void onMessage(String channel, String message) {
+            switch (channel) {
+                case SentinelEvents.SLAVE_PLUS:
+
+                    addSlave2Node(message);
+                    break;
+                case SentinelEvents.SWITCH_MASTER:
+
+                    break;
+                case SentinelEvents.ODOWN_PLUS:
+
+                    break;
+                case SentinelEvents.SDOWN_PLUS:
+                    removeNode(message);
+                    break;
+                case SentinelEvents.SDOWN_MINUS:
+                    addNode(message);
+                    break;
+                default:
+            }
+        }
+
+
+        private void addNode(String message) {
+            for(;;){
+
+            }
+        }
+
+        private void removeNode(String message) {
+            for(;;){
+
+            }
+        }
+
+        private void addSlave2Node(String message) {
+            if (useSlave) {
+                for (; ; ) {
+                    if (!rediscovering) {
+                        try {
+                            rediscovering = true;
+                            SentinelEvents.MessageDetail messageDetail = SentinelEvents.convertStr2MessageDetail(message);
+                            HostAndPort master = new HostAndPort(messageDetail.masterIp, NumberUtils.toInt(messageDetail.masterPort));
+                            HostAndPort slave = new HostAndPort(messageDetail.ip, NumberUtils.toInt(messageDetail.port));
+                            MasterSlaveNode node = nodes.get(master.toString());
+                            //主为空的情况先不管
+                            if (node != null) {
+                                if (node.addSlaveHostAndPort(slave.toString())) {
+                                    JedisPool slavePool = new JedisPool(poolConfig, slave.getHost(), slave.getPort(),
+                                            connectionTimeout, soTimeout, password, 0, clientName, false, null, null, null, false);
+                                    node.getSlave().add(slavePool);
+                                }
+                            }
+                            break;
+                        } finally {
+                            rediscovering = false;
+                        }
+                    }
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
     }
 
 
