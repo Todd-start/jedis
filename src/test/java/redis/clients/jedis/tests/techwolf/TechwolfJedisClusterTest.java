@@ -8,6 +8,7 @@ import org.junit.Test;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.TechwolfJedisCluster;
+import redis.clients.techwolf.TechwolfJedisConfig;
 
 import java.util.Map;
 
@@ -22,8 +23,10 @@ public class TechwolfJedisClusterTest {
     public void before() {
         GenericObjectPoolConfig config = new GenericObjectPoolConfig();
         HostAndPort hostAndPort = new HostAndPort("192.168.1.167", 8000);
-        techwolfJedisCluster = new TechwolfJedisCluster(hostAndPort,
-                null, null, config);
+        TechwolfJedisConfig techwolfJedisConfig = new TechwolfJedisConfig();
+        techwolfJedisConfig.setHostAndPort(hostAndPort);
+        techwolfJedisConfig.setPoolConfig(config);
+        techwolfJedisCluster = new TechwolfJedisCluster(techwolfJedisConfig);
     }
 
     @After

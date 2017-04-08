@@ -36,10 +36,8 @@ public class TechwolfJedisClusterInfoCache {
     private int soTimeout;
     private String password;
     private String clientName;
-    private boolean useSlave = false;
+    private boolean useSlave;
     private final TechwolfNodeSaint techwolfNodeSaint = new TechwolfNodeSaint(new CachePubSub());
-
-    private static final int MASTER_NODE_INDEX = 2;
 
     public TechwolfJedisClusterInfoCache(final GenericObjectPoolConfig poolConfig,
                                          final int connectionTimeout, final int soTimeout,
@@ -614,12 +612,14 @@ public class TechwolfJedisClusterInfoCache {
         private void addNode(String message) {
             for(;;){
                 break;
+                //TODO
             }
         }
 
         private void removeNode(String message) {
             for(;;){
                 break;
+                //TODO
             }
         }
 

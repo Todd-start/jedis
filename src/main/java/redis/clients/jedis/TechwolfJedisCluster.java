@@ -5,6 +5,7 @@ import redis.clients.jedis.BinaryClient.LIST_POSITION;
 import redis.clients.jedis.params.geo.GeoRadiusParam;
 import redis.clients.jedis.params.sortedset.ZAddParams;
 import redis.clients.jedis.params.sortedset.ZIncrByParams;
+import redis.clients.techwolf.TechwolfJedisConfig;
 import redis.clients.util.JedisClusterHashTagUtil;
 import redis.clients.util.KeyMergeUtil;
 import redis.clients.util.SafeEncoder;
@@ -20,6 +21,16 @@ public class TechwolfJedisCluster extends TechwolfBinaryJedisCluster implements 
 
     public static enum Reset {
         SOFT, HARD
+    }
+
+    public TechwolfJedisCluster(TechwolfJedisConfig config){
+        super(Collections.singleton(config.getHostAndPort()),
+                config.getConnectionTimeout(),
+                config.getSoTimeout(),
+                config.getMaxAttempts(),
+                config.getPassword(),
+                config.getClientName(),
+                config.getPoolConfig());
     }
 
     public TechwolfJedisCluster(HostAndPort node, int connectionTimeout, int soTimeout,
