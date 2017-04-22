@@ -40,7 +40,6 @@ public class TechwolfNodeSaint {
     }
 
     public void init() {
-        sentinels.add("192.168.1.31:26379");
         sentinelSet = new HashSet<TechwolfSentinel>(sentinels.size());
         for (String sentinel : sentinels) {
             sentinelSet.add(new TechwolfSentinel(sentinel, poolConfig));
