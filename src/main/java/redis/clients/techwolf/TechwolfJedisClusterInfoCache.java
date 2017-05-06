@@ -1,6 +1,5 @@
 package redis.clients.techwolf;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.*;
@@ -14,6 +13,7 @@ import javax.net.ssl.SSLSocketFactory;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
@@ -22,14 +22,17 @@ import java.util.logging.Logger;
  */
 public class TechwolfJedisClusterInfoCache {
 
+    private TechwolfJedisClusterInfoCache reliefCache;
     private Logger log = Logger.getLogger(getClass().getName());
-    private final Map<String, MasterSlaveNode> nodes = new HashMap<String, MasterSlaveNode>();
-    private final Map<Integer, MasterSlaveNode> slots = new HashMap<Integer, MasterSlaveNode>();
+    private Map<String, MasterSlaveNode> nodes = new HashMap<String, MasterSlaveNode>();
+    private Map<Integer, MasterSlaveNode> slots = new HashMap<Integer, MasterSlaveNode>();
+    private static final int MASTER_NODE_INDEX = 2;
 
     private final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
     private final Lock r = rwl.readLock();
     private final Lock w = rwl.writeLock();
-    private volatile boolean rediscovering;
+
+    private final ReentrantLock rediscoveringLock = new ReentrantLock();
     private final GenericObjectPoolConfig poolConfig;
 
     private int connectionTimeout;
@@ -37,7 +40,6 @@ public class TechwolfJedisClusterInfoCache {
     private String password;
     private String clientName;
     private boolean useSlave;
-    private final TechwolfNodeSaint techwolfNodeSaint = new TechwolfNodeSaint(new CachePubSub());
 
     public TechwolfJedisClusterInfoCache(final GenericObjectPoolConfig poolConfig,
                                          final int connectionTimeout, final int soTimeout,
@@ -49,69 +51,100 @@ public class TechwolfJedisClusterInfoCache {
         this.password = password;
         this.clientName = clientName;
         this.useSlave = useSlave;
-        techwolfNodeSaint.init();
     }
 
     private void discoverClusterMasterAndSlave(Jedis jedis) {
-        String clusterNodesCommand = jedis.clusterNodes();
-        String[] allNodes = clusterNodesCommand.split("\n");
-        Map<String, Set<String>> tempMap = new HashMap<String, Set<String>>();
-        Map<String, String> tempMap2 = new HashMap<String, String>();
-        for (String allNode : allNodes) {
-            String[] splits = allNode.split(" ");
-            ClusterNodeObject clusterNodeObject =
-                    new ClusterNodeObject(splits[0], splits[1],
-                            splits[2].contains("master"), splits[3],
-                            NumberUtils.toLong(splits[4], 0), NumberUtils.toLong(splits[5], 0), splits[6],
-                            splits[7].equalsIgnoreCase("connected"), splits.length == 9 ? splits[8] : null);
-            if (!clusterNodeObject.isLinkState()) {
+        List<Object> slotsObject = jedis.clusterSlots();
+        for (Object slotObj : slotsObject) {
+            List<Object> slotInfo = (List<Object>) slotObj;
+            if (slotInfo.size() <= MASTER_NODE_INDEX) {
                 continue;
             }
-            if (clusterNodeObject.isMaster()) {
-                tempMap2.put(clusterNodeObject.getNodeId(), clusterNodeObject.getHostAndPort());
-                MasterSlaveNode masterSlaveNode = nodes.get(clusterNodeObject.getHostAndPort());
-                if (masterSlaveNode == null) {
-                    //如果没有说明是新主　则new一个放到node里
-                    masterSlaveNode = new MasterSlaveNode(clusterNodeObject);
-                    nodes.put(masterSlaveNode.getMasterHostAndPort(), masterSlaveNode);
-                } else {
-                    //如果以存在的node配置版本没有变化则不进行销毁
-                    //如果node里有，重新生成的时候要释放之前的slave
-                    if (!clusterNodeObject.getConfigEpoch().equals(masterSlaveNode.getConfigEpoch())) {
-                        masterSlaveNode.destroySlave();
-                    }
+            List<Integer> slotNums = getAssignedSlotArray(slotInfo);
+            int size = slotInfo.size();
+            MasterSlaveNode masterSlaveNode = null;
+            for (int i = MASTER_NODE_INDEX; i < size; i++) {
+                List<Object> hostInfos = (List<Object>) slotInfo.get(i);
+                if (hostInfos.size() <= 0) {
+                    continue;
                 }
-                //重新分配槽
-                if (clusterNodeObject.getSlot() != null) {
-                    //每个主只能进来一次所以重新分槽时先删除
-                    masterSlaveNode.clearSlot();
-                    int beginSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[0]);
-                    int endSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[1]);
-                    for (int i = beginSlot; i <= endSlot; i++) {
-                        masterSlaveNode.addSlot(i);
+                HostAndPort targetNode = generateHostAndPort(hostInfos);
+                String nodeId = SafeEncoder.encode((byte[]) hostInfos.get(2));
+                //第一个是主
+                if(i == MASTER_NODE_INDEX){
+                    masterSlaveNode = nodes.get(targetNode.toString());
+                    if(masterSlaveNode == null){
+                        masterSlaveNode = new MasterSlaveNode(targetNode,nodeId);
+                        nodes.put(targetNode.toString(),masterSlaveNode);
                     }
-                }
-                //如果之前循环有从节点先出现则此map有值
-                Set<String> slaveSet = tempMap.get(clusterNodeObject.getNodeId());
-                if (slaveSet == null) {
-                    tempMap.put(clusterNodeObject.getNodeId(), new HashSet<String>());
-                } else if (!slaveSet.isEmpty()) {
-                    masterSlaveNode.addAllSlaveHostAndPort(slaveSet);
-                }
-            } else if (useSlave) {
-                String masterHostAndPort = tempMap2.get(clusterNodeObject.getMasterId());
-                if (StringUtils.isBlank(masterHostAndPort)) {
-                    Set<String> set = tempMap.get(clusterNodeObject.getMasterId());
-                    if (set == null) {
-                        set = new HashSet<String>();
-                        tempMap.put(clusterNodeObject.getMasterId(), set);
+                }else {//从
+                    if(useSlave){
+                        masterSlaveNode.getSlaveHostAndPort().add(targetNode.toString());
+                        masterSlaveNode.getSlaveNodeId().add(nodeId);
                     }
-                    set.add(clusterNodeObject.getHostAndPort());
-                } else {
-                    nodes.get(masterHostAndPort).addSlaveHostAndPort(clusterNodeObject.getHostAndPort());
                 }
             }
+            masterSlaveNode.getSlotList().addAll(slotNums);
         }
+
+//        String[] allNodes = clusterNodesCommand.split("\n");
+//        Map<String, Set<String>> tempMap = new HashMap<String, Set<String>>();
+//        Map<String, String> tempMap2 = new HashMap<String, String>();
+//        for (String allNode : allNodes) {
+//            String[] splits = allNode.split(" ");
+//            ClusterNodeObject clusterNodeObject =
+//                    new ClusterNodeObject(splits[0], splits[1],
+//                            splits[2].contains("master"), splits[3],
+//                            NumberUtils.toLong(splits[4], 0), NumberUtils.toLong(splits[5], 0), splits[6],
+//                            splits[7].equalsIgnoreCase("connected"), splits.length == 9 ? splits[8] : null);
+//            if (!clusterNodeObject.isLinkState()) {
+//                continue;
+//            }
+//            if (clusterNodeObject.isMaster()) {
+//                tempMap2.put(clusterNodeObject.getNodeId(), clusterNodeObject.getHostAndPort());
+//                MasterSlaveNode masterSlaveNode = nodes.get(clusterNodeObject.getHostAndPort());
+//                if (masterSlaveNode == null) {
+//                    //如果没有说明是新主　则new一个放到node里
+//                    masterSlaveNode = new MasterSlaveNode(clusterNodeObject);
+//                    nodes.put(masterSlaveNode.getMasterHostAndPort(), masterSlaveNode);
+//                } else {
+//                    //如果以存在的node配置版本没有变化则不进行销毁
+//                    //如果node里有，重新生成的时候要释放之前的slave
+////                    if (!clusterNodeObject.getConfigEpoch().equals(masterSlaveNode.getConfigEpoch())) {
+////                        masterSlaveNode.destroySlave();
+////                    }
+//                }
+//                //重新分配槽
+//                if (clusterNodeObject.getSlot() != null) {
+//                    //每个主只能进来一次所以重新分槽时先删除
+//                    masterSlaveNode.clearSlot();
+//                    int beginSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[0]);
+//                    int endSlot = NumberUtils.toInt(clusterNodeObject.getSlot().split("-")[1]);
+//                    for (int i = beginSlot; i <= endSlot; i++) {
+//                        masterSlaveNode.addSlot(i);
+//                    }
+//                }
+//                //如果之前循环有从节点先出现则此map有值
+//                Set<String> slaveSet = tempMap.get(clusterNodeObject.getNodeId());
+//                if (slaveSet == null) {
+//                    tempMap.put(clusterNodeObject.getNodeId(), new HashSet<String>());
+//                } else if (!slaveSet.isEmpty()) {
+//                    masterSlaveNode.addAllSlaveHostAndPort(slaveSet);
+//                }
+//            } else if (useSlave) {
+//                String masterHostAndPort = tempMap2.get(clusterNodeObject.getMasterId());
+//                if (StringUtils.isBlank(masterHostAndPort)) {
+//                    Set<String> set = tempMap.get(clusterNodeObject.getMasterId());
+//                    if (set == null) {
+//                        set = new HashSet<String>();
+//                        tempMap.put(clusterNodeObject.getMasterId(), set);
+//                    }
+//                    set.add(clusterNodeObject.getHostAndPort());
+//                } else {
+//                    nodes.get(masterHostAndPort).addSlaveHostAndPort(clusterNodeObject.getHostAndPort());
+//                }
+//            }
+//        }
     }
 
     public void discoverClusterNodesAndSlots(Jedis jedis) {
@@ -130,55 +163,66 @@ public class TechwolfJedisClusterInfoCache {
             MasterSlaveNode masterSlaveNode = entry.getValue();
             HostAndPort hostAndPort = masterSlaveNode.getHostAndPort();
             setupNodeIfNotExist(hostAndPort);
-            assignSlotsToNode(entry.getValue().getSlotList(), hostAndPort);
+            assignSlotsToNode(entry.getValue().getSlotListView(), hostAndPort);
         }
     }
 
     public void renewClusterSlots(Jedis jedis) {
         //If rediscovering is already in process - no need to start one more same rediscovering, just return
-        if (!rediscovering) {
-            w.lock();
+        if (rediscoveringLock.tryLock()) {
             try {
-                rediscovering = true;
-
-                if (jedis != null && "pong".equals(jedis.ping())) {//防止jedis不为空时但连接失效
+                this.reliefCache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName, false);
+                //防止jedis不为空时但连接失效
+                if (jedis != null && "pong".equals(jedis.ping())) {
                     try {
-                        slots.clear();
-                        discoverClusterMasterAndSlave(jedis);
-                        setupAllMasterAndSlaveNode();
-                        return;
+                        reliefCache.discoverClusterMasterAndSlave(jedis);
                     } catch (JedisException e) {
                         //try nodes from all pools
                     }
-                }
-
-                for (JedisPool jp : getShuffledNodesPool()) {
-                    try {
-                        jedis = jp.getResource();
-                        if (jedis == null) {
-                            continue;
-                        }
-                        String result = jedis.ping();
-                        if (!result.equalsIgnoreCase("pong")) {
-                            continue;
-                        }
-                        slots.clear();
-                        discoverClusterMasterAndSlave(jedis);
-                        setupAllMasterAndSlaveNode();
-                        return;
-                    } catch (JedisConnectionException e) {
-                        // try next nodes
-                    } finally {
-                        if (jedis != null) {
-                            jedis.close();
+                } else {
+                    for (JedisPool jp : getShuffledNodesPool()) {
+                        try {
+                            jedis = jp.getResource();
+                            if (jedis == null) {
+                                continue;
+                            }
+                            String result = jedis.ping();
+                            if (!result.equalsIgnoreCase("pong")) {
+                                continue;
+                            }
+                            reliefCache.discoverClusterNodesAndSlots(jedis);
+                            break;
+                        } catch (JedisConnectionException e) {
+                            // try next nodes
+                        } finally {
+                            if (jedis != null) {
+                                jedis.close();
+                            }
                         }
                     }
                 }
+                Map<String, MasterSlaveNode> tmpNodes = this.nodes;
+                w.lock();
+                try {
+                    this.nodes = reliefCache.getNode();
+                    this.slots = reliefCache.getSlot();
+                } finally {
+                    w.unlock();
+                }
+
+                if(tmpNodes != null){
+                    for(MasterSlaveNode masterSlaveNode :tmpNodes.values()){
+                        masterSlaveNode.destroy();//TODO
+                    }
+                }
             } finally {
-                rediscovering = false;
-                w.unlock();
+                rediscoveringLock.unlock();
             }
         }
+    }
+
+    public void renewClusterSlotsV2(Jedis jedis) {
+
     }
 
     private HostAndPort generateHostAndPort(List<Object> hostInfos) {
@@ -410,6 +454,19 @@ public class TechwolfJedisClusterInfoCache {
         return slotNums;
     }
 
+    public void renewSlotCache(Jedis connection, int slot, HostAndPort targetNode) {
+        MasterSlaveNode oldNode = slots.get(slot);
+        //TODO
+        MasterSlaveNode newNode = nodes.get(targetNode.toString());
+        if (newNode != null) {
+            //TODO lock in
+        } else {
+            // init targetNode
+
+        }
+
+    }
+
     /**
      * master slave jedispool container
      */
@@ -430,15 +487,22 @@ public class TechwolfJedisClusterInfoCache {
         private String masterNodeId;
         private Set<String> slaveNodeId;
         private List<Integer> slotList;
-        private String configEpoch;
 
         public MasterSlaveNode(ClusterNodeObject clusterNodeObject) {
             this.masterHostAndPort = clusterNodeObject.getHostAndPort();
             this.masterNodeId = clusterNodeObject.getNodeId();
             slaveHostAndPort = new HashSet<String>();
             slotList = new ArrayList<Integer>();
-            this.configEpoch = clusterNodeObject.getConfigEpoch();
+            slaveNodeId = new HashSet<String>();
         }
+        public MasterSlaveNode(HostAndPort hostAndPort,String nodeId) {
+            this.masterHostAndPort = hostAndPort.toString();
+            this.masterNodeId = nodeId;
+            slaveHostAndPort = new HashSet<String>();
+            slotList = new ArrayList<Integer>();
+            slaveNodeId = new HashSet<String>();
+        }
+
 
         public Set<String> getSlaveHostAndPort() {
             return slaveHostAndPort;
@@ -458,10 +522,6 @@ public class TechwolfJedisClusterInfoCache {
 
         public void setSlave(List<JedisPool> slave) {
             this.slave = slave;
-        }
-
-        public String getConfigEpoch() {
-            return configEpoch;
         }
 
         public ReentrantReadWriteLock getNodeLock() {
@@ -540,8 +600,12 @@ public class TechwolfJedisClusterInfoCache {
             }
         }
 
-        public List<Integer> getSlotList() {
+        public List<Integer> getSlotListView() {
             return new ArrayList<Integer>(slotList);
+        }
+
+        public List<Integer> getSlotList() {
+            return slotList;
         }
 
         public JedisPool getSlaveByStrategy(MasterSlaveNode.SlaveStrategy strategy) {
@@ -610,14 +674,14 @@ public class TechwolfJedisClusterInfoCache {
 
 
         private void addNode(String message) {
-            for(;;){
+            for (; ; ) {
                 break;
                 //TODO
             }
         }
 
         private void removeNode(String message) {
-            for(;;){
+            for (; ; ) {
                 break;
                 //TODO
             }
@@ -626,9 +690,8 @@ public class TechwolfJedisClusterInfoCache {
         private void addSlave2Node(String message) {
             if (useSlave) {
                 for (; ; ) {
-                    if (!rediscovering) {
+                    if (rediscoveringLock.tryLock()) {
                         try {
-                            rediscovering = true;
                             SentinelEvents.MessageDetail messageDetail = SentinelEvents.convertStr2MessageDetail(message);
                             HostAndPort master = new HostAndPort(messageDetail.masterIp, NumberUtils.toInt(messageDetail.masterPort));
                             HostAndPort slave = new HostAndPort(messageDetail.ip, NumberUtils.toInt(messageDetail.port));
@@ -643,7 +706,7 @@ public class TechwolfJedisClusterInfoCache {
                             }
                             break;
                         } finally {
-                            rediscovering = false;
+                            rediscoveringLock.unlock();
                         }
                     }
                     try {
@@ -658,4 +721,11 @@ public class TechwolfJedisClusterInfoCache {
     }
 
 
+    public Map<String, MasterSlaveNode> getNode() {
+        return nodes;
+    }
+
+    public Map<Integer, MasterSlaveNode> getSlot() {
+        return slots;
+    }
 }

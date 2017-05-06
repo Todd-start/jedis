@@ -30,7 +30,9 @@ public class TechwolfJedisCluster extends TechwolfBinaryJedisCluster implements 
                 config.getMaxAttempts(),
                 config.getPassword(),
                 config.getClientName(),
-                config.getPoolConfig());
+                config.getPoolConfig(),
+                config.isUseSlave()
+        );
     }
 
     public TechwolfJedisCluster(HostAndPort node, int connectionTimeout, int soTimeout,

@@ -138,6 +138,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
       if (jre instanceof JedisMovedDataException) {
         // it rebuilds cluster's slot cache
         // recommended by Redis cluster specification
+        this.connectionHandler.renewSlotCache(connection,jre.getSlot(),jre.getTargetNode());
         this.connectionHandler.renewSlotCache(connection);
       }
 

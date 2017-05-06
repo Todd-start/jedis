@@ -11,7 +11,11 @@ import java.util.Set;
 public class TechwolfJedisSlotBasedConnectionHandler extends TechwolfJedisClusterConnectionHandler {
 
     public TechwolfJedisSlotBasedConnectionHandler(Set<HostAndPort> nodes, GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName) {
-        super(nodes, poolConfig, connectionTimeout, soTimeout, password, clientName);
+        this(nodes, poolConfig, connectionTimeout, soTimeout, password, clientName,false);
+    }
+
+    public TechwolfJedisSlotBasedConnectionHandler(Set<HostAndPort> nodes, GenericObjectPoolConfig poolConfig, int connectionTimeout, int soTimeout, String password, String clientName,boolean useSlave) {
+        super(nodes, poolConfig, connectionTimeout, soTimeout, password, clientName,useSlave);
     }
 
 

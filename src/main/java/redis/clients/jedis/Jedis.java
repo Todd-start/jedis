@@ -9,13 +9,12 @@ import redis.clients.util.Pool;
 import redis.clients.util.SafeEncoder;
 import redis.clients.util.Slowlog;
 
-import java.net.URI;
-import java.util.*;
-import java.util.Map.Entry;
-
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
+import java.net.URI;
+import java.util.*;
+import java.util.Map.Entry;
 
 public class Jedis extends BinaryJedis implements JedisCommands, MultiKeyCommands,
     AdvancedJedisCommands, ScriptingCommands, BasicCommands, ClusterCommands, SentinelCommands {
@@ -3507,4 +3506,11 @@ public class Jedis extends BinaryJedis implements JedisCommands, MultiKeyCommand
     return client.getIntegerMultiBulkReply();
   }
 
+  public String getHost(){
+    return client.getHost();
+  }
+
+  public int getPort(){
+    return client.getPort();
+  }
 }

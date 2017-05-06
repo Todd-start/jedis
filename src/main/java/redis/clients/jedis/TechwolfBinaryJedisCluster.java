@@ -32,8 +32,12 @@ public class TechwolfBinaryJedisCluster implements BasicCommands, BinaryJedisClu
   }
 
   public TechwolfBinaryJedisCluster(Set<HostAndPort> jedisClusterNode, int connectionTimeout, int soTimeout, int maxAttempts, String password, String clientName, GenericObjectPoolConfig poolConfig) {
+      this(jedisClusterNode,connectionTimeout,soTimeout,maxAttempts,password,clientName,poolConfig,false);
+  }
+
+  public TechwolfBinaryJedisCluster(Set<HostAndPort> jedisClusterNode, int connectionTimeout, int soTimeout, int maxAttempts, String password, String clientName, GenericObjectPoolConfig poolConfig,boolean useSlave) {
     this.connectionHandler = new TechwolfJedisSlotBasedConnectionHandler(jedisClusterNode, poolConfig,
-            connectionTimeout, soTimeout, password, clientName);
+            connectionTimeout, soTimeout, password, clientName,useSlave);
     this.maxAttempts = maxAttempts;
   }
 
