@@ -139,7 +139,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
         // it rebuilds cluster's slot cache
         // recommended by Redis cluster specification
         this.connectionHandler.renewSlotCache(connection,jre.getSlot(),jre.getTargetNode());
-        this.connectionHandler.renewSlotCache(connection);
+//        this.connectionHandler.renewSlotCache(connection);
       }
 
       // release current connection before recursion or renewing
