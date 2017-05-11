@@ -119,7 +119,6 @@ public abstract class TechwolfJedisClusterCommand<T> {
       // release current connection before recursion
       releaseConnection(connection);
       connection = null;
-
       if (attempts <= 1) {
         //We need this because if node is not reachable anymore - we need to finally initiate slots renewing,
         //or we can stuck with cluster state without one node in opposite case.

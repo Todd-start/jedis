@@ -43,6 +43,7 @@ public class TechwolfJedisSlotBasedConnectionHandler extends TechwolfJedisCluste
 
     @Override
     public Jedis getConnectionFromSlot(int slot) {
+        System.out.println(Thread.currentThread().getName() + "getConnectionFromSlot:" + slot);
         QueryContext queryContext = queryContextThreadLocal.get();
         JedisPool connectionPool = null;
         if (queryContext != null && queryContext.isRead()) {
