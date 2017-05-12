@@ -7,11 +7,23 @@ public class JedisConnectionException extends JedisException {
     super(message);
   }
 
+  public JedisConnectionException(String message,String host,int port) {
+    super(message,host,port);
+  }
+
   public JedisConnectionException(Throwable cause) {
     super(cause);
   }
 
+  public JedisConnectionException(Throwable cause,String host,int port) {
+    super(cause,host,port);
+  }
+
   public JedisConnectionException(String message, Throwable cause) {
     super(message, cause);
+  }
+
+  public JedisConnectionException(String message, Throwable cause,String host,int port) {
+    super(message, cause,host,port);
   }
 }

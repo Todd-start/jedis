@@ -64,6 +64,10 @@ public abstract class TechwolfJedisClusterConnectionHandler implements Closeable
         cache.renewClusterSlots(null);
     }
 
+    public void renewSlotCache(String host,int port) {
+        cache.renewClusterSlots(host,port);
+    }
+
     public void renewSlotCache(Jedis jedis) {
         cache.renewClusterSlots(jedis);
     }
@@ -90,5 +94,9 @@ public abstract class TechwolfJedisClusterConnectionHandler implements Closeable
 
     public void renewSlotCache(Jedis connection, int slot, HostAndPort targetNode) {
         cache.renewSlotCache(connection, slot, targetNode);
+    }
+
+    public boolean badJedis(Jedis jedis){
+        return cache.badJedis(jedis.getHost()+":" + jedis.getPort());
     }
 }

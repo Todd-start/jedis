@@ -125,7 +125,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
         //But now if maxAttempts = 1 or 2 we will do it too often. For each time-outed request.
         //TODO make tracking of successful/unsuccessful operations for node - do renewing only
         //if there were no successful responses from this node last few seconds
-        this.connectionHandler.renewSlotCache();
+        this.connectionHandler.renewSlotCache(jce.getHost(),jce.getPort());
 
         //no more redirections left, throw original exception, not JedisClusterMaxRedirectionsException, because it's not MOVED situation
         throw jce;
