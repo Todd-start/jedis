@@ -22,9 +22,8 @@ public class TechwolfJedisClusterTest {
     @Before
     public void before() {
         GenericObjectPoolConfig config = new GenericObjectPoolConfig();
-        HostAndPort hostAndPort = new HostAndPort("192.168.1.167", 8000);
         TechwolfJedisConfig techwolfJedisConfig = new TechwolfJedisConfig();
-        techwolfJedisConfig.setHostAndPort(hostAndPort);
+        techwolfJedisConfig.setHostAndPortStr("192.168.1.167:8000");
         techwolfJedisConfig.setPoolConfig(config);
         techwolfJedisCluster = new TechwolfJedisCluster(techwolfJedisConfig);
     }

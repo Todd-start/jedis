@@ -1,7 +1,12 @@
 package redis.clients.techwolf;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.HostAndPort;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Created by zhaoyalong on 17-4-8.
@@ -46,25 +51,9 @@ public class TechwolfJedisConfig {
     private int maxAttempts = 5;
 
     /**
-     * 启动连接点,靠此点发现整个集群
+     * 启动连接点,靠此点发现整个集群，形如： ip:port;ip:port
      */
-    private HostAndPort hostAndPort;
-
-    public HostAndPort getHostAndPort() {
-        return hostAndPort;
-    }
-
-    public void setHostAndPort(HostAndPort hostAndPort) {
-        this.hostAndPort = hostAndPort;
-    }
-
-    public int getMaxAttempts() {
-        return maxAttempts;
-    }
-
-    public void setMaxAttempts(int maxAttempts) {
-        this.maxAttempts = maxAttempts;
-    }
+    private String hostAndPortStr;
 
     public boolean isUseSlave() {
         return useSlave;
@@ -112,5 +101,46 @@ public class TechwolfJedisConfig {
 
     public void setClientName(String clientName) {
         this.clientName = clientName;
+    }
+
+    public int getMaxAttempts() {
+        return maxAttempts;
+    }
+
+    public void setMaxAttempts(int maxAttempts) {
+        this.maxAttempts = maxAttempts;
+    }
+
+
+    public String getHostAndPortStr() {
+        return hostAndPortStr;
+    }
+
+    public void setHostAndPortStr(String hostAndPortStr) {
+        this.hostAndPortStr = hostAndPortStr;
+    }
+
+
+    public Set<HostAndPort> getHostAndPortSet() {
+        if (StringUtils.isBlank(hostAndPortStr)) {
+            throw new IllegalArgumentException("TechwolfJedisConfig.hostAndPortStr is blank!!!");
+        }
+
+        Set<HostAndPort> hostAndPortSet = new HashSet<>();
+        String[] arr = hostAndPortStr.split(";");
+        for (int i = 0; i < arr.length; ++i) {
+            String str = arr[i];
+            String[] hostPort = str.split(":");
+            if (hostPort.length != 2) {
+                continue;
+            }
+
+            hostAndPortSet.add(new HostAndPort(hostPort[0], NumberUtils.toInt(hostPort[1])));
+        }
+
+        if (hostAndPortSet.isEmpty()) {
+            throw new IllegalStateException("TechwolfJedisConfig.hostAndPortSet is empty!!!");
+        }
+        return hostAndPortSet;
     }
 }

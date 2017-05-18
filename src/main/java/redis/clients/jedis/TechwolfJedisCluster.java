@@ -10,11 +10,8 @@ import redis.clients.util.JedisClusterHashTagUtil;
 import redis.clients.util.KeyMergeUtil;
 import redis.clients.util.SafeEncoder;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 
 public class TechwolfJedisCluster extends TechwolfBinaryJedisCluster implements JedisCommands,
         MultiKeyJedisClusterCommands, JedisClusterScriptingCommands {
@@ -23,8 +20,8 @@ public class TechwolfJedisCluster extends TechwolfBinaryJedisCluster implements 
         SOFT, HARD
     }
 
-    public TechwolfJedisCluster(TechwolfJedisConfig config){
-        super(Collections.singleton(config.getHostAndPort()),
+    public TechwolfJedisCluster(TechwolfJedisConfig config) {
+        super(config.getHostAndPortSet(),
                 config.getConnectionTimeout(),
                 config.getSoTimeout(),
                 config.getMaxAttempts(),
