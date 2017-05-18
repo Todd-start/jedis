@@ -5,17 +5,14 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.*;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisException;
+import redis.clients.techwolf.exceptions.TechwolfRenewException;
 import redis.clients.util.SafeEncoder;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -29,14 +26,14 @@ public class TechwolfJedisClusterInfoCache {
 
     private Logger log = Logger.getLogger(getClass().getName());
 
-    private volatile Set<String> badNode = new HashSet<String>();
+    private static final ConcurrentHashMap<String,Object> badNodeMap = new ConcurrentHashMap<String,Object>();
 
     private Map<String, MasterSlaveNode> nodes = new HashMap<String, MasterSlaveNode>();
     private Map<Integer, MasterSlaveNode> slots = new HashMap<Integer, MasterSlaveNode>();
     private static final int MASTER_NODE_INDEX = 2;
     private static final int DELAY_TIME = 3;
     private static volatile long lastRenewTime = 0;
-    private AtomicBoolean lock = new AtomicBoolean(true);
+    //    private AtomicBoolean lock = new AtomicBoolean(true);
     private final ScheduledExecutorService scheduledExecutorService = Executors
             .newSingleThreadScheduledExecutor(new ThreadFactory() {
                 @Override
@@ -109,7 +106,7 @@ public class TechwolfJedisClusterInfoCache {
     private void discoverClusterMasterAndSlave(Jedis jedis, String errorHost, int errorPort) {
         //等待次数越多时间就可以越小
         int waitTimes = 30;
-        a:
+        retry:
         for (; waitTimes >= 0; waitTimes--) {
             List<Object> slotsObject = jedis.clusterSlots();
             for (Object slotObj : slotsObject) {
@@ -140,7 +137,7 @@ public class TechwolfJedisClusterInfoCache {
                             } catch (InterruptedException e) {
                                 e.printStackTrace();
                             }
-                            continue a;
+                            continue retry;
                         }
                         masterSlaveNode = nodes.get(targetNode.toString());
                         if (masterSlaveNode == null) {
@@ -166,6 +163,9 @@ public class TechwolfJedisClusterInfoCache {
             reset();
             discoverClusterMasterAndSlave(jedis);
             setupAllMasterAndSlaveNode();
+            if (!checkOk()) {
+                throw new TechwolfRenewException();
+            }
         } finally {
             w.unlock();
         }
@@ -182,19 +182,19 @@ public class TechwolfJedisClusterInfoCache {
 
     public void renewClusterSlots(Jedis jedis) {
         //If rediscovering is already in process - no need to start one more same rediscovering, just return
-        System.out.println(new Date() + " " + Thread.currentThread().getName() + " in ");
+        print(" in ");
         if (flag) {
 //        if (rediscoveringLock.tryLock()) {
-            if (lock.compareAndSet(true, false)) {
+            if (rediscoveringLock.tryLock()) {
                 flag = false;
-                System.out.println(new Date() + " " + Thread.currentThread().getName() + " in　lock ");
+                print(" in　lock ");
                 try {
                     long start = System.currentTimeMillis();
                     if (start - lastRenewTime < 10000) {
-                        System.out.println(new Date() + " " + Thread.currentThread().getName() + " return ");
+                        print(" return ");
                         return;
                     }
-                    System.out.println(new Date() + " " + Thread.currentThread().getName() + "renewClusterSlots begin-----------------------------");
+                    print(" renewClusterSlots begin-----------------------------");
                     TechwolfJedisClusterInfoCache reliefCache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName, false);
                     //防止jedis不为空时但连接失效
                     if (jedis != null && "pong".equalsIgnoreCase(jedis.ping())) {
@@ -237,10 +237,10 @@ public class TechwolfJedisClusterInfoCache {
                         w.unlock();
                     }
                     lastRenewTime = System.currentTimeMillis();
-                    System.out.println(new Date() + " " + Thread.currentThread().getName() + "renewClusterSlots---------- time" + (lastRenewTime - start));
+                    print("renewClusterSlots---------- time" + (lastRenewTime - start));
                     //延迟处理
                     if (tmpNodes != null) {
-                        System.out.println(new Date() + " " + Thread.currentThread().getName() + tmpNodes);
+                        print(new Date() + " " + tmpNodes);
                         this.scheduledExecutorService.schedule(new Runnable() {
                             @Override
                             public void run() {
@@ -251,28 +251,35 @@ public class TechwolfJedisClusterInfoCache {
                         }, DELAY_TIME, TimeUnit.SECONDS);
                     }
                 } finally {
-//                rediscoveringLock.unlock();
+                    rediscoveringLock.unlock();
                     flag = true;
-                    lock.set(true);
+
                 }
             }
-            System.out.println(new Date() + " " + Thread.currentThread().getName() + " out ");
+            print(" out ");
         }
     }
 
     public void renewClusterSlots(String host, int port) {
         //If rediscovering is already in process - no need to start one more same rediscovering, just return
-        System.out.println(Thread.currentThread().getName() + " know node in ");
+        print("know node  in");
         if (rediscoveringLock.tryLock()) {
-            System.out.println(Thread.currentThread().getName() + " know node  in　lock ");
+            print("know node  in　lock");
             try {
                 long start = System.currentTimeMillis();
                 if (start - lastRenewTime < 10000) {
-                    System.out.println(Thread.currentThread().getName() + " know node return ");
+                    print(" know node return ");
                     return;
                 }
-                badNode.add(host + ":" + port);
-                System.out.println(Thread.currentThread().getName() + "renewClusterSlots begin-----------------------------");
+                MasterSlaveNode node = nodes.get(host + ":" + port);
+                if(node != null){
+                    Jedis errorJedis = node.getMaster().getResource();
+                    if(errorJedis != null && "pong".equalsIgnoreCase(errorJedis.ping())){
+                        return;
+                    }
+                    badNodeMap.put(host + ":" + port,"");
+                }
+                print("renewClusterSlots begin-----------------------------");
                 TechwolfJedisClusterInfoCache reliefCache = new TechwolfJedisClusterInfoCache(poolConfig, connectionTimeout, soTimeout, password, clientName, false);
                 //防止jedis不为空时但连接失效
                 Jedis jedis = null;
@@ -298,6 +305,10 @@ public class TechwolfJedisClusterInfoCache {
                         }
                     }
                 }
+                if (!reliefCache.checkOk()) {
+                    badNodeMap.clear();
+                    return;
+                }
                 final Map<String, MasterSlaveNode> tmpNodes = this.nodes;
                 w.lock();
                 try {
@@ -315,18 +326,23 @@ public class TechwolfJedisClusterInfoCache {
                 } finally {
                     w.unlock();
                 }
+
                 lastRenewTime = System.currentTimeMillis();
-                System.out.println(Thread.currentThread().getName() + "renewClusterSlots---------- time" + (lastRenewTime - start));
+                print("renewClusterSlots---------- time" + (lastRenewTime - start));
                 //延迟处理
-                if (tmpNodes != null) {
-                    System.out.println(Thread.currentThread().getName() + tmpNodes);
+                if (tmpNodes != null && tmpNodes.size() > 0) {
+                    print(tmpNodes.toString());
                     this.scheduledExecutorService.schedule(new Runnable() {
                         @Override
                         public void run() {
-                            badNode.clear();
                             for (MasterSlaveNode masterSlaveNode : tmpNodes.values()) {
-                                masterSlaveNode.destroy();
+                                try {
+                                    masterSlaveNode.destroy();
+                                }catch (Exception e){
+
+                                }
                             }
+                            badNodeMap.clear();
                         }
                     }, DELAY_TIME, TimeUnit.SECONDS);
                 }
@@ -334,7 +350,11 @@ public class TechwolfJedisClusterInfoCache {
                 rediscoveringLock.unlock();
             }
         }
-        System.out.println(Thread.currentThread().getName() + " out ");
+        print(" know node out ");
+    }
+
+    private boolean checkOk() {
+        return nodes != null && slots != null && nodes.size() > 0 && slots.size() == 16384;
     }
 
     private HostAndPort generateHostAndPort(List<Object> hostInfos) {
@@ -567,11 +587,12 @@ public class TechwolfJedisClusterInfoCache {
     }
 
     public void renewSlotCache(Jedis connection, int slot, HostAndPort targetNode) {
+        w.lock();
         MasterSlaveNode newNode = nodes.get(targetNode.toString());
         if (newNode == null) {
-            //TODO
+            //TODO 新增节点问题
+//            MasterSlaveNode masterSlaveNode = new MasterSlaveNode(targetNode,"");
         }
-        w.lock();
         try {
             slots.put(slot, newNode);
         } finally {
@@ -580,7 +601,7 @@ public class TechwolfJedisClusterInfoCache {
     }
 
     public boolean badJedis(String hostAndPort) {
-        return badNode.contains(hostAndPort);
+        return badNodeMap.containsKey(hostAndPort.toString());
     }
 
     /**
@@ -838,6 +859,9 @@ public class TechwolfJedisClusterInfoCache {
 
     }
 
+    private void print(String a) {
+        System.out.println("jedis:" + Thread.currentThread().getName() + ":" + a + " " + new Date());
+    }
 
     public Map<String, MasterSlaveNode> getNode() {
         return nodes;

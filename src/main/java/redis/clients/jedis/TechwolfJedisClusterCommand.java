@@ -1,8 +1,11 @@
 package redis.clients.jedis;
 
 import redis.clients.jedis.exceptions.*;
+import redis.clients.techwolf.exceptions.TechwolfNodeBrokenException;
 import redis.clients.util.JedisClusterCRC16;
 import redis.clients.util.SafeEncoder;
+
+import java.util.Date;
 
 public abstract class TechwolfJedisClusterCommand<T> {
 
@@ -25,6 +28,14 @@ public abstract class TechwolfJedisClusterCommand<T> {
     return runWithRetries(SafeEncoder.encode(key), this.maxAttempts, false, false);
   }
 
+//  public T run(String key,T defaultValue) {
+//    if (key == null) {
+//      throw new JedisClusterException("No way to dispatch this command to Redis Cluster.");
+//    }
+//
+//    return runWithRetries(SafeEncoder.encode(key), this.maxAttempts, false, false,defaultValue);
+//  }
+
   public T run(int keyCount, String... keys) {
     if (keys == null || keys.length == 0) {
       throw new JedisClusterException("No way to dispatch this command to Redis Cluster.");
@@ -45,6 +56,27 @@ public abstract class TechwolfJedisClusterCommand<T> {
 
     return runWithRetries(SafeEncoder.encode(keys[0]), this.maxAttempts, false, false);
   }
+
+//  public T run(int keyCount,T defaultValue,String... keys) {
+//    if (keys == null || keys.length == 0) {
+//      throw new JedisClusterException("No way to dispatch this command to Redis Cluster.");
+//    }
+//
+//    // For multiple keys, only execute if they all share the
+//    // same connection slot.
+//    if (keys.length > 1) {
+//      int slot = JedisClusterCRC16.getSlot(keys[0]);
+//      for (int i = 1; i < keyCount; i++) {
+//        int nextSlot = JedisClusterCRC16.getSlot(keys[i]);
+//        if (slot != nextSlot) {
+//          throw new JedisClusterException("No way to dispatch this command to Redis Cluster "
+//                  + "because keys have different slots.");
+//        }
+//      }
+//    }
+//
+//    return runWithRetries(SafeEncoder.encode(keys[0]), this.maxAttempts, false, false,defaultValue);
+//  }
 
   public T runBinary(byte[] key) {
     if (key == null) {
@@ -110,22 +142,30 @@ public abstract class TechwolfJedisClusterCommand<T> {
           connection = connectionHandler.getConnectionFromSlot(JedisClusterCRC16.getSlot(key));
         }
       }
-
+      if(connectionHandler.badJedis(connection)){
+        throw new TechwolfNodeBrokenException(connection.getHost(),connection.getPort());
+      }
       return execute(connection);
 
     } catch (JedisNoReachableClusterNodeException jnrcne) {
       throw jnrcne;
     } catch (JedisConnectionException jce) {
       // release current connection before recursion
+      print(" retry");
       releaseConnection(connection);
-      connection = null;
       if (attempts <= 1) {
         //We need this because if node is not reachable anymore - we need to finally initiate slots renewing,
         //or we can stuck with cluster state without one node in opposite case.
         //But now if maxAttempts = 1 or 2 we will do it too often. For each time-outed request.
         //TODO make tracking of successful/unsuccessful operations for node - do renewing only
         //if there were no successful responses from this node last few seconds
-        this.connectionHandler.renewSlotCache(jce.getHost(),jce.getPort());
+//        this.connectionHandler.renewSlotCache(jce.getHost(),jce.getPort());
+        if(connection != null){
+          this.connectionHandler.renewSlotCache(connection.getHost(),connection.getPort());
+          connection = null;
+        }else {
+          this.connectionHandler.renewSlotCache();
+        }
 
         //no more redirections left, throw original exception, not JedisClusterMaxRedirectionsException, because it's not MOVED situation
         throw jce;
@@ -159,6 +199,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
     }
   }
 
+
   private void releaseConnection(Jedis connection) {
     if (connection != null) {
       connection.close();
@@ -166,4 +207,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
     connectionHandler.removeQueryContext();
   }
 
+  private void print(String a) {
+    System.out.println("jedis:" + Thread.currentThread().getName() + ":" + a + " " + new Date());
+  }
 }

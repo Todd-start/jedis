@@ -160,10 +160,6 @@ public class TechwolfJedisCluster extends TechwolfBinaryJedisCluster implements 
         return new TechwolfJedisClusterCommand<Long>(connectionHandler, maxAttempts) {
             @Override
             public Long execute(Jedis connection) {
-                if(connectionHandler.badJedis(connection)){
-                    System.out.println(Thread.currentThread().getName()+" bad gay");
-                    return 0L;
-                }
                 return connection.ttl(key);
             }
         }.run(key);
