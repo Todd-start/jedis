@@ -1,11 +1,15 @@
 package redis.clients.techwolf;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.omg.IOP.TAG_ALTERNATE_IIOP_ADDRESS;
 import redis.clients.jedis.*;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisException;
 import redis.clients.techwolf.exceptions.TechwolfRenewException;
+import redis.clients.techwolf.util.CommandParseUtil;
 import redis.clients.util.SafeEncoder;
 
 import javax.net.ssl.HostnameVerifier;
@@ -246,7 +250,9 @@ public class TechwolfJedisClusterInfoCache {
         } catch (JedisException e) {
             //try nodes from all pools
         } finally {
-            jedis.close();
+            if (jedis != null) {
+                jedis.close();
+            }
         }
         return reliefCache;
     }
@@ -632,18 +638,79 @@ public class TechwolfJedisClusterInfoCache {
     }
 
     public void renewSlotCache(Jedis connection, int slot, HostAndPort targetNode) {
-        w.lock();
-        MasterSlaveNode newNode = nodes.get(targetNode.toString());
-        if (newNode == null) {
-            //TODO 新增节点问题
-//            MasterSlaveNode masterSlaveNode = new MasterSlaveNode(targetNode,"");
-        }
+        MasterSlaveNode newNode;
+        r.lock();
         try {
-            slots.put(slot, newNode);
+            newNode = nodes.get(targetNode.toString());
         } finally {
-            w.unlock();
+            r.unlock();
         }
+
+        if (newNode != null) {
+            w.lock();
+            try {
+                slots.put(slot, newNode);
+            } finally {
+                w.unlock();
+            }
+        } else {
+            MasterSlaveNode masterSlaveNode = new MasterSlaveNode(targetNode, "");
+            discoverClusterSlave(masterSlaveNode);
+            w.lock();
+            try {
+                slots.put(slot, masterSlaveNode);
+                setupNodeIfNotExist(targetNode);
+            } finally {
+                w.unlock();
+            }
+        }
+
     }
+
+    /**
+     * 单个node获取其信息
+     * @param masterSlaveNode
+     */
+    private void discoverClusterSlave(MasterSlaveNode masterSlaveNode) {
+        HostAndPort hostAndPort = masterSlaveNode.getHostAndPort();
+        Jedis jedis = null;
+        try {
+            jedis = new Jedis(hostAndPort.getHost(), hostAndPort.getPort());
+            if (!"PONG".equalsIgnoreCase(jedis.ping())) {
+                return;
+            }
+            String clusterNodeStr = jedis.clusterNodes();
+            String[] allNodes = clusterNodeStr.split("\n");
+            if (allNodes != null && allNodes.length > 0) {
+                for (String str : allNodes) {
+                    if (StringUtils.containsIgnoreCase(str, "myself")) {
+                        String[] myselfNodeArr = CommandParseUtil.paresClusterNodes(str);
+                        String nodeId = myselfNodeArr[0];
+                        masterSlaveNode.setMasterNodeId(nodeId);
+                        break;
+                    }
+                }
+                if (masterSlaveNode.getMasterNodeId() != null && useSlave) {
+                    List<String> slaveStrList = jedis.clusterSlaves(masterSlaveNode.getMasterNodeId());
+                    if (CollectionUtils.isNotEmpty(slaveStrList)) {
+                        for (String slave : slaveStrList) {
+                            String[] slaveArr = CommandParseUtil.paresClusterNodes(slave);
+                            if (slaveArr != null && slaveArr.length > 2) {
+                                masterSlaveNode.addSlaveHostAndPort(slaveArr[1]);
+                                masterSlaveNode.getSlaveNodeId().add(slaveArr[0]);
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            if (jedis != null) {
+                jedis.close();
+            }
+        }
+
+    }
+
 
     public boolean badJedis(String hostAndPort) {
         return badNodeMap.containsKey(hostAndPort);
@@ -729,6 +796,15 @@ public class TechwolfJedisClusterInfoCache {
 
         public void setSlaveNodeId(Set<String> slaveNodeId) {
             this.slaveNodeId = slaveNodeId;
+        }
+
+
+        public String getMasterNodeId() {
+            return masterNodeId;
+        }
+
+        public void setMasterNodeId(String masterNodeId) {
+            this.masterNodeId = masterNodeId;
         }
 
         @Override
