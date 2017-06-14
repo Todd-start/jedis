@@ -152,7 +152,7 @@ public abstract class TechwolfJedisClusterCommand<T> {
             throw jnrcne;
         } catch (JedisConnectionException jce) {
             // release current connection before recursion
-            print(" retry cost:" + (System.currentTimeMillis() - start) + " " + jce);
+            print(" retry cost:" + (System.currentTimeMillis() - start) + " " + jce + ", key: " + new String(key));
 
             releaseConnection(connection);
             if (attempts <= 1) {
