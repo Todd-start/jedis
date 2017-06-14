@@ -26,4 +26,9 @@ public class JedisConnectionException extends JedisException {
   public JedisConnectionException(String message, Throwable cause,String host,int port) {
     super(message, cause,host,port);
   }
+
+  @Override
+  public String toString() {
+    return "JedisConnectionException{} " + super.toString();
+  }
 }
