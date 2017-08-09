@@ -51,4 +51,12 @@ public class JedisException extends RuntimeException {
         this.host = host;
         this.port = port;
     }
+
+    @Override
+    public String toString() {
+        return "JedisException{" +
+                "host='" + host + '\'' +
+                ", port=" + port +
+                "} " + super.toString();
+    }
 }
