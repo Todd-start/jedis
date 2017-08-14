@@ -4,7 +4,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.omg.IOP.TAG_ALTERNATE_IIOP_ADDRESS;
 import redis.clients.jedis.*;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisException;
@@ -669,6 +668,7 @@ public class TechwolfJedisClusterInfoCache {
 
     /**
      * 单个node获取其信息
+     *
      * @param masterSlaveNode
      */
     private void discoverClusterSlave(MasterSlaveNode masterSlaveNode) {
@@ -714,6 +714,19 @@ public class TechwolfJedisClusterInfoCache {
 
     public boolean badJedis(String hostAndPort) {
         return badNodeMap.containsKey(hostAndPort);
+    }
+
+    public String getHostAndPortBySlot(int slot) {
+        r.lock();
+        try {
+            MasterSlaveNode masterSlaveNode = slots.get(slot);
+            return masterSlaveNode != null ? masterSlaveNode.getMasterHostAndPort() : String.valueOf(slot);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            r.unlock();
+        }
+        return String.valueOf(slot);
     }
 
     /**

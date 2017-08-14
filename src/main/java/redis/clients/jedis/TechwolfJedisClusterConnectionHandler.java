@@ -30,6 +30,10 @@ public abstract class TechwolfJedisClusterConnectionHandler implements Closeable
 
     abstract Jedis getConnectionFromSlot(int slot);
 
+    public String getHostAndPortBySlot(int slot){
+        return cache.getHostAndPortBySlot(slot);
+    }
+
     public Jedis getConnectionFromNode(HostAndPort node) {
         return cache.setupNodeIfNotExist(node).getResource();
     }
